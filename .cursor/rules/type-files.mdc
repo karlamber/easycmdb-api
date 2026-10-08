@@ -1,0 +1,19 @@
+# Type File Organization
+
+## One Type Per File Rule
+
+- Each Command, Param, and Projection type must be in its own file
+- File naming: `{type-name}.command.ts`, `{type-name}.param.ts`, `{type-name}.projection.ts`
+- Never combine multiple types into a single file
+- Exception: Closely related sub-types (e.g., a projection with its nested item type) may share a file
+
+## Examples
+
+✅ Correct:
+- `download-case-file.projection.ts` → `DownloadCaseFileProjection`
+- `case-file-with-category.projection.ts` → `CaseFileWithCategoryProjection`
+- `upload-start-record-file.command.ts` → `UploadStartRecordFileCommand`
+
+❌ Incorrect:
+- `download-case-file.projection.ts` → multiple projection types
+- `types.ts` → mixed Command and Projection types

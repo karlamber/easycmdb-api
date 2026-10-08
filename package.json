@@ -1,0 +1,62 @@
+{
+	"name": "easycmdb-api",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"engines": {
+		"node": ">=20",
+		"npm": ">= 6.13.4"
+	},
+	"scripts": {
+		"build": "esbuild src/handler.ts --bundle --platform=node --target=node24 --format=cjs --outfile=dist/handler.js --sourcemap",
+		"typecheck": "tsc --noEmit",
+		"type-check": "tsc -p tsconfig.json --noEmit",
+		"zip": "npm run build && rm -f bundle.zip && (cd dist && zip -q ../bundle.zip handler.js handler.js.map)",
+		"deploy:poc": "node scripts/deploy-poc.mjs",
+		"prettier": "prettier --check .",
+		"prettier:fix": "prettier --write .",
+		"prettier-format": "prettier --write '**/*.{js,ts,mjs,cjs,json,md}'",
+		"lint": "eslint . --fix --ignore-pattern dist/",
+		"lint:fix": "eslint . --fix --ignore-pattern dist/",
+		"lint:clear-cache": "eslint --cache --cache-location .eslintcache --no-cache",
+		"lint:arch": "depcruise --config .dependency-cruiser.cjs src",
+		"lint-staged": "lint-staged",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"migrate": "node scripts/migrate.mjs",
+		"migrate:status": "node scripts/migrate.mjs --status",
+		"migrate:stamps": "node scripts/print-migration-stamps.mjs",
+		"migrate:check-bootstrap": "node scripts/check-bootstrap-stamps.mjs",
+		"add": "git add . && ./preadd.sh",
+		"prepare": "node --input-type=commonjs -e \"if (require('fs').existsSync('node_modules/husky')) require('child_process').execSync('husky', {stdio:'inherit'})\""
+	},
+	"dependencies": {
+		"pg": "^8.14.1",
+		"zod": "^3.24.2"
+	},
+	"devDependencies": {
+		"@eslint/js": "^9.39.4",
+		"@types/aws-lambda": "^8.10.147",
+		"@types/node": "^22.14.1",
+		"@types/pg": "^8.11.11",
+		"dependency-cruiser": "^17.4.0",
+		"esbuild": "^0.25.2",
+		"eslint": "^9.39.4",
+		"globals": "^15.15.0",
+		"husky": "^9.1.7",
+		"lint-staged": "^15.5.2",
+		"prettier": "^3.8.3",
+		"typescript": "^5.8.3",
+		"typescript-eslint": "^8.59.2",
+		"vitest": "^2.1.4"
+	},
+	"lint-staged": {
+		"**/*.ts": [
+			"prettier --write",
+			"eslint --fix"
+		],
+		"**/*.{js,mjs,cjs,json,md}": [
+			"prettier --write"
+		]
+	}
+}

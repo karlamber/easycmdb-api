@@ -1,0 +1,31 @@
+---
+description: DevOps change safety for workflows and lambdas (non-Terragrunt)
+alwaysApply: true
+---
+
+# DevOps Change Safety
+
+## Environment promotion
+
+All changes — infrastructure and application deploys — must progress **sb → dev → tst → prod**. No skipping steps, even for simple fixes. Confirm environment before running any deploy workflow or manual promotion.
+
+## Ask first (high blast radius)
+
+Loop in the principal engineer before:
+
+| Area | Why |
+|------|-----|
+| Production deploys | Real customers |
+| Shared networking or DNS | Many dependents |
+| IAM / OIDC / Cognito | Security blast radius |
+| WAF / public load balancer rules | Edge exposure |
+| Remote state or backends | Can break every stack |
+| `terraform destroy` / `force_destroy` | Irreversible |
+
+## Secrets
+
+No secrets in workflow files, commit messages, or logs. App config at runtime comes from SSM via `container_secrets`. GitHub Secrets only when SSM is not viable.
+
+## When unsure
+
+Stop and ask. Slow and correct beats fast and on fire.

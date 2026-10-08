@@ -1,0 +1,52 @@
+---
+description: Ask clarifying questions before writing code or making changes
+alwaysApply: true
+---
+
+# Clarify First, Code Second
+
+Before making any code or configuration changes, gather full understanding of the request. Ambiguity is the enemy of correct IaC.
+
+## Default behavior
+
+For any non-trivial request:
+
+1. **Restate the goal** in one sentence to confirm understanding.
+2. **Ask clarifying questions one at a time**, walking down the decision tree branch by branch. Resolve each branch's dependent decisions before moving on.
+3. **Recommend an answer** for every question with brief reasoning. The user can confirm or override.
+4. **Present a brief plan** (files to touch, order of operations, expected blast radius) before writing.
+5. **Wait for explicit confirmation** before editing files, running `terragrunt`, or any AWS API call.
+
+Use the `AskQuestion` tool when available so the user can pick from structured options.
+
+## When clarification can be skipped
+
+These are the only exceptions:
+
+- Pure documentation typo or formatting fixes with no semantic change.
+- User has provided an unambiguous specification (exact filename, exact content, exact change).
+- User explicitly says "go ahead", "skip questions", "just do it", or similar.
+
+If in doubt, ask.
+
+## Scope expansion
+
+If fulfilling a request requires changes outside the original scope (e.g. fixing one stack requires editing a shared module, or a new dependency must be added to another stack), **pause and ask** before expanding scope. Do not silently grow the change.
+
+## Destructive or high-impact changes
+
+Changes touching production, shared infrastructure, IAM, networking, remote state, or secrets must always go through the question flow — even when the user has said "go ahead". See `iac-safety.mdc`.
+
+## Example
+
+Bad:
+
+> User: "Add a log level parameter for perseus."
+> Assistant immediately writes three files.
+
+Good:
+
+> User: "Add a log level parameter for perseus."
+> Assistant: "Got it — adding a `LOG_LEVEL` parameter for `perseus` in this landscape.
+> Q1: Which environments should this be added to today — `sb` only, or `sb` + `dev`? (recommend `sb` only, then promote)
+> Once you confirm, I'll show you the planned edit to `perseus/ssm_param/terragrunt.hcl` before writing."

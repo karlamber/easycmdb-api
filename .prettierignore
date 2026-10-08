@@ -1,0 +1,8 @@
+# Ignore build artifacts and tooling outputs
+.github/**
+dist/**
+node_modules/**
+coverage/**
+*.zip
+package-lock.json
+LICENSE

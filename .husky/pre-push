@@ -1,0 +1,4 @@
+npm run typecheck
+npm run prettier
+npm run lint
+npm run lint:arch

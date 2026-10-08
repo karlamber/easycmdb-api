@@ -1,0 +1,34 @@
+---
+description: Dual-write Postgres schema process — migrations plus landscape bootstrap snapshots
+globs:
+  - db/migrations/**/*.sql
+  - scripts/migrate*.mjs
+  - scripts/*stamps*.mjs
+  - src/infrastructure/repositories/**/*.ts
+alwaysApply: false
+---
+
+# Schema changes (Argus Postgres)
+
+Do **not** run DDL from Lambda. Schema is a separate step from `UpdateFunctionCode`.
+
+## Dual-write (required)
+
+1. Add `db/migrations/YYYYMMDDHHMMSS_description.sql` — additive and idempotent (`IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`). Never edit a file that may already be applied.
+2. Fold the **end-state** DDL into every landscape bootstrap snapshot (`initial-config.sql`). Those files do **not** ALTER existing tables.
+3. Stamp every migration version in `argus.schema_migrations` in those snapshots. Copy from `npm run migrate:stamps`. Verify with `npm run migrate:check-bootstrap -- <path>`.
+
+## Deploy order
+
+- **Expand first:** apply SQL on the target DB, then deploy Lambda that needs the new shape.
+- Old code must still run after an additive migration.
+- Drops/renames are a later migration, only after all environments run code that no longer needs the old shape.
+
+## Apply
+
+| Cluster | What to run |
+|---|---|
+| New | `initial-config.sql` as `postgres` (RDS Query Editor). Do not re-run it to evolve a live DB. |
+| Existing | `npm run migrate` as an owner role, or paste the new SQL in Query Editor **and** insert the version. |
+
+`argus_lambda` is DML-only. Apply DDL as `postgres`.

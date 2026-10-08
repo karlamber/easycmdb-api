@@ -1,0 +1,97 @@
+---
+description: Domain Type Colocation
+globs: ['**/*.ts']
+alwaysApply: false
+---
+
+# Domain Type Colocation Principle
+
+**"Things that change together, live together."**
+
+## Type Placement Decision Tree
+
+| Scope of Usage              | Strategy                           | File Naming                                       |
+| --------------------------- | ---------------------------------- | ------------------------------------------------- |
+| Only in tests               | Inline in the spec file            | N/A                                               |
+| Only in one TS              | Colocate in TS folder              | `{ts-name}.param.ts` or `{ts-name}.projection.ts` |
+| Shared across TSs in domain | Put in `domain/projections/`       | `{entity}.projection.ts`                          |
+| Shared across domains       | Put in `shared/` or `constants.ts` | Context-dependent                                 |
+
+## Naming Conventions
+
+| Type Purpose  | Suffix             | Example                        |
+| ------------- | ------------------ | ------------------------------ |
+| TS Input      | `.param.ts`        | `upload-complete.param.ts`     |
+| Service Input | `.command.ts`      | `merge-case.command.ts`        |
+| Domain Output | `.projection.ts`   | `record-files.projection.ts`   |
+| API Request   | `.request.dto.ts`  | `create-folder.request.dto.ts` |
+| API Response  | `.response.dto.ts` | `fetch-files.response.dto.ts`  |
+
+## Anti-Patterns to Avoid
+
+1. **No centralized `domain/types/` folders** - These become dumping grounds
+2. **No generic `.type.ts` files** - Use specific suffixes above
+3. **No orphaned param files** - Params must be next to their TS
+4. **No "Dto" in domain layer** - Use Projection/Params/Command instead
+
+## Examples
+
+### ✅ Good: Colocated Params
+
+```
+domain/transaction-scripts/
+  upload-complete-ts/
+    upload-complete.transaction.script.ts
+    upload-complete.param.ts          # Colocated with TS
+    __specs__/
+      upload-complete.transaction.script.spec.ts
+```
+
+### ✅ Good: Shared Projections
+
+```
+domain/
+  projections/
+    file.projection.ts               # Used by multiple TSs
+  transaction-scripts/
+    fetch-files-ts/
+    download-files-ts/               # Both use FileProjection
+```
+
+### ✅ Good: Test-only Types Inlined
+
+```typescript
+// In spec file - no separate file needed
+type DownloadItem = {
+  id: string;
+  name: string;
+  path: string;
+};
+
+describe('DownloadHelper', () => {
+  it('should work', () => {
+    const items: DownloadItem[] = [...];
+  });
+});
+```
+
+### ❌ Bad: Centralized Types Folder
+
+```
+domain/
+  types/                             # ❌ Dumping ground
+    file.type.ts
+    folder.type.ts
+    random-thing.type.ts
+```
+
+### ❌ Bad: Orphaned Params
+
+```
+domain/
+  params/                            # ❌ Disconnected from consumers
+    upload.param.ts
+  transaction-scripts/
+    upload-ts/
+      upload.transaction.script.ts   # Where's my param?
+```

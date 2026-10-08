@@ -1,0 +1,31 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+## Type System
+- Use const assertions over enums with type extraction
+- Use types over interfaces
+- Never use `any` type
+- Use branded types for type-safe IDs
+- Define return types for all functions explicitly
+
+## Code Organization
+- Follow functional programming principles where possible
+- Avoid variable reassignment after initialization
+- Keep functions pure when possible
+- Handle side effects in dedicated composables/services
+- Use immutable data structures
+
+## Testing
+- Test files location: `__specs__` folder adjacent to SUT
+- Test file naming: `{original-name}.spec.ts`
+- Test descriptions: follow given/when/then
+- Test structure: use // Arrange, // Act, // Assert comments
+- Mock naming: suffix with Mock (e.g., serviceMock)
+- Spy naming: suffix with Spy (e.g., methodSpy)
+- Test data: use test-utils for random data generation
+- Variable naming: use 'target' for system under test
+- Coverage: minimum 80% for all production code
+- Required test for all production code except those in jest-e2e.json
+- Prefer ordinal matching like `toHaveBeenNthCalledWith` over plain argument matching `toHaveBeenCalledWith`

@@ -1,0 +1,341 @@
+---
+description: Architecture patterns and dependency rules for easycmdb-api (DDD with Hexagonal Architecture, plain-TS Lambda)
+globs:
+alwaysApply: true
+---
+
+# Architecture Patterns
+
+## Overview
+
+`easycmdb-api` follows **Domain-Driven Design (DDD)** with **Hexagonal Architecture (Ports & Adapters)** and a **Layered Architecture**. It is a **plain TypeScript AWS Lambda** — no NestJS, no DI container — so dependencies are wired by hand in `src/handler.ts` (the composition root) and injected via constructor.
+
+This rule mirrors the patterns used across the team (see `theseus-back-end/.cursor/rules/architecture-patterns.mdc` for the NestJS variant) but adapts them to a framework-free runtime.
+
+## Core Principles
+
+### Domain-Driven Design (DDD)
+
+Codebase organizes around three subdomain types:
+
+1. **Core Subdomains** — business-critical functionality
+2. **Support Subdomains** — supporting functionality
+3. **Generic Subdomains** — reusable common functionality
+
+### Hexagonal Architecture (Ports & Adapters)
+
+- **Domain logic is isolated** from external concerns.
+- **Dependencies point inward** toward the domain.
+- **External systems are abstracted** through ports (interfaces in domain) and adapters (implementations in infrastructure).
+- **Testability** through dependency inversion.
+
+### Layered Architecture
+
+```
+src/
+├── handler.ts           ← composition root (lambda entry, wires deps)
+├── config.ts            ← env parsing
+├── domain/              ← entities, ports, errors, pure rules
+├── application/         ← orchestration services (one per use case / aggregate)
+├── infrastructure/      ← adapters (pg repositories, db pool, ...)
+└── interfaces/          ← delivery layer (http router, schemas, auth, cors)
+```
+
+### Layer Boundary Rules
+
+Dependencies flow inward. The following are FORBIDDEN and enforced by `npm run lint:arch` (dependency-cruiser):
+
+| From → To        | application | infrastructure | interfaces |
+| ---------------- | ----------- | -------------- | ---------- |
+| `domain`         | ❌          | ❌             | ❌         |
+| `application`    | —           | ❌             | ❌         |
+| `infrastructure` | ❌          | —              | ❌         |
+| `interfaces`     | ✅          | ❌ (use deps)  | —          |
+
+The composition root `src/handler.ts` is exempt: it imports concrete adapters from `infrastructure` and concrete services from `application` and wires them together.
+
+### Commands, Queries, and Projections
+
+To maintain clean layer boundaries, use distinct type patterns for domain input and output.
+
+**Commands** — input types representing intent to change state; plain TypeScript types (no decorators).
+- Located in: `domain/services/{service-name}/{action}.command.ts` (or colocated with the consumer)
+- Naming: `{Action}{Entity}Command`
+
+```typescript
+export type CreateApplicationCommand = {
+	name: string;
+	description?: string;
+};
+```
+
+**Params** — input types for transaction-script-style functions.
+- Located in: colocated with the script (`{ts-name}.param.ts`)
+- Naming: `{Action}{Entity}Params`
+
+**Projections** — read-only output types from the domain.
+- Plain TypeScript types (no decorators)
+- Located in: colocated with the producer or in `domain/projections/` if shared
+- Naming: `{Entity}Projection` or `{Action}{Entity}Projection`
+
+**DTOs / Schemas** — application/interface-layer types for API contracts.
+- For argus we use **zod schemas** in `interfaces/http/schemas.ts` for request validation, plus inferred output types
+- Naming: `create{Entity}Schema`, `update{Entity}Schema`, `{action}RequestDTO`, `{action}ResponseDTO`
+- Domain components MUST NOT depend on these — domain returns projections; the interfaces layer maps them to the response shape.
+
+**Pattern Flow**:
+
+```
+HTTP Request → zod schema (validate) → Application Service → Domain → Projection → HTTP Response
+```
+
+**Key Benefits**:
+
+1. Domain stays pure and framework-agnostic.
+2. Schemas/DTOs can be refactored without touching domain.
+3. Validation stays in `interfaces/http/`.
+4. Clear separation of concerns.
+
+## Pattern Glossary
+
+> All patterns below are implemented as **plain TypeScript classes** with constructor-injected dependencies. Wiring happens in `src/handler.ts`.
+
+### Application Service
+
+**Purpose**: Orchestrates one bounded use case or aggregate (CRUD service, workflow, etc.).
+
+**Characteristics**:
+- Located in: `src/application/{entity}-{purpose}.service.ts`
+- Naming: `{Entity}{Purpose}Service` (e.g., `ApplicationCrudService`)
+- One service per aggregate / cohesive use case
+- Depends on **domain ports** (interfaces), never on infrastructure adapters directly
+
+**Dependencies**:
+- Can inject: domain ports (Repository interfaces), other domain abstractions
+- Cannot depend on: `infrastructure/`, `interfaces/`, other application services (creates tight coupling — extract a transaction script if you need shared logic)
+
+**Example**:
+
+```typescript
+import type { Application, CreateApplicationInput } from '../domain/application.js';
+import { NotFoundError } from '../domain/errors.js';
+import type { ApplicationRepository } from '../domain/repositories.js';
+
+export class ApplicationCrudService {
+	constructor(private readonly repo: ApplicationRepository) {}
+
+	async getById(id: string): Promise<Application> {
+		const row = await this.repo.findById(id);
+		if (!row) {
+			throw new NotFoundError('application', id);
+		}
+		return row;
+	}
+
+	async create(input: CreateApplicationInput): Promise<Application> {
+		return this.repo.create(input);
+	}
+}
+```
+
+### Transaction Script
+
+**Purpose**: Encapsulates a single business transaction or use case when an Application Service grows beyond CRUD.
+
+**Characteristics**:
+- Single responsibility: handles one specific use case
+- Uses parameter objects for input (RO-RO)
+- Independently testable
+- Located in: `src/domain/transaction-scripts/{ts-name}-ts/{ts-name}.transaction.script.ts`
+- Naming: `{ActionName}TS` or `{ActionName}TransactionScript`
+- Has a single public method named `apply`
+
+**Dependencies**:
+- Can inject: Repository ports, other domain abstractions (mappers, aggregators via ports)
+- Cannot inject: Application Services (creates a circular layer dependency), other Transaction Scripts (extract a domain service or shared helper)
+
+```typescript
+export class FetchApplicationDetailTS {
+	constructor(private readonly repo: ApplicationRepository) {}
+
+	async apply(id: string): Promise<ApplicationDetailProjection> {
+		const row = await this.repo.findById(id);
+		if (!row) throw new NotFoundError('application', id);
+		return { id: row.id, name: row.name, isActive: row.is_active };
+	}
+}
+```
+
+### Domain Service
+
+**Purpose**: Coordinates multiple transaction scripts or implements pure domain workflows.
+
+**Characteristics**:
+- High-level business rules
+- Coordinates multiple transaction scripts or pure domain functions
+- Located in: `src/domain/services/{service-name}/`
+
+**Dependencies**:
+- Can inject: Transaction Scripts, Repository ports, Aggregator ports
+- Cannot inject: other Domain Services (creates tight coupling)
+
+### Converters
+
+**Purpose**: Pure transformation between representations (e.g., DB row → domain entity, projection → DTO).
+
+**Characteristics**:
+- Pure / stateless
+- No business logic, no I/O
+- Located close to their consumer; promote up to `domain/converters/` only when shared
+- Naming: `{source}-to-{target}.converter.ts`
+
+**Dependencies**:
+- Cannot inject: other Converters (use an Assembler), Repositories (use an Assembler), Transaction Scripts, Domain Services
+
+### Assemblers
+
+**Purpose**: Combine multiple converters and repositories to assemble complex objects that need extra lookups.
+
+**Characteristics**:
+- Located in: alongside their consumer transaction script, or `domain/assemblers/` if shared
+- Naming: `{purpose}.assembler.ts`
+
+**Dependencies**:
+- Can inject: Converters, Repository ports
+- Cannot inject: Transaction Scripts, Domain Services, Mappers
+
+### Mappers
+
+**Purpose**: High-level mapping that coordinates assemblers, converters, and repositories.
+
+**Characteristics**:
+- One layer above Assemblers
+- Located in: alongside the transaction script that consumes them
+- Naming: `{purpose}.mapper.ts`
+
+**Dependencies**:
+- Can inject: Assemblers, Converters, Repository ports
+- Cannot inject: Transaction Scripts, Domain Services
+- Typically injected into: Transaction Scripts
+
+### Repositories (Ports + Adapters)
+
+**Purpose**: Abstract all data access behind interfaces in the domain.
+
+**Port** (in `src/domain/repositories.ts` or per-aggregate file):
+
+```typescript
+export interface ApplicationRepository {
+	list(filter: ListFilter): Promise<Application[]>;
+	findById(id: string): Promise<Application | null>;
+	create(input: CreateApplicationInput): Promise<Application>;
+	update(id: string, patch: UpdateApplicationInput): Promise<Application | null>;
+	softDelete(id: string): Promise<boolean>;
+}
+```
+
+**Adapter** (in `src/infrastructure/repositories/{entity}.pg-repository.ts`):
+
+```typescript
+export class PgApplicationRepository implements ApplicationRepository {
+	constructor(private readonly pool: Pool) {}
+
+	async findById(id: string): Promise<Application | null> {
+		const res = await this.pool.query('SELECT ... WHERE id = $1', [id]);
+		return res.rows[0] ?? null;
+	}
+}
+```
+
+**Naming**:
+- Port: `{Entity}Repository` (interface) in `domain/`
+- Adapter: `{Tech}{Entity}Repository` (e.g., `PgApplicationRepository`) in `infrastructure/repositories/`
+
+**Dependencies**:
+- Adapters can depend on: db driver / SDK clients (pg `Pool`, AWS SDK), other adapters where genuinely needed
+- Cannot depend on: Transaction Scripts, Application Services, Converters, Assemblers, Mappers
+
+### Entities (Domain Model)
+
+**Purpose**: Domain objects expressing the shape and invariants of business concepts.
+
+**Characteristics**:
+- Plain TypeScript types or classes (no ORM decorators — argus uses `pg` directly)
+- Located in: `src/domain/{entity}.ts`
+- Naming: a type per aggregate (`Application`, `Landscape`, etc.)
+- Branded ID types preferred for type-safe IDs
+
+### HTTP Schemas / DTOs (Interfaces Layer)
+
+**Purpose**: Validate inbound HTTP requests and shape outbound responses.
+
+- Located in: `src/interfaces/http/schemas.ts` (zod schemas + `to*Input` mappers)
+- Naming: `create{Entity}Schema`, `update{Entity}Schema`, `{entity}IdParamSchema`
+- Mapping helpers: `to{Action}{Entity}Input(parsed)` translate parsed schema output into a domain `Command` / `Input` shape
+
+### Errors
+
+- Domain errors live in `src/domain/errors.ts` and extend a base `DomainError` carrying `statusCode` + `code`
+- Naming: `NotFoundError`, `ValidationError`, etc.
+- The interfaces layer translates `DomainError` → HTTP status; never throws raw HTTP-shaped errors from the domain
+
+## Dependency Injection (Plain TS Edition)
+
+Pluto-api-lambda has **no DI container**. Wiring is explicit:
+
+```typescript
+// src/handler.ts (composition root)
+const config = loadConfig();
+const pool = getOrCreatePool(config);
+
+const deps: RouterDeps = {
+	config,
+	applications: new ApplicationCrudService(new PgApplicationRepository(pool)),
+	landscapes: new LandscapeCrudService(new PgLandscapeRepository(pool)),
+	// ...
+};
+```
+
+**Rules**:
+
+1. Only `handler.ts` (and other future composition-root files) is allowed to `new` an infrastructure adapter.
+2. Application services accept **port interfaces** in their constructor, not concrete adapters.
+3. Test by passing a hand-rolled fake/mock object that satisfies the port interface — no mocking framework required.
+
+## Pattern Hierarchy (do not cross laterally)
+
+```
+Composition Root (handler.ts)
+        │
+        ▼
+Application Service ──► Transaction Script ──► Domain Service
+        │                       │                     │
+        │                       ▼                     ▼
+        └──► Repository Port ◄── Mapper ◄── Assembler ◄── Converter
+                    ▲
+                    │  (implements)
+        Infrastructure Adapter (PgRepository, S3Client wrapper, ...)
+```
+
+Patterns at the same level should not inject each other (Service → Service, TS → TS, Converter → Converter). When you feel the urge to do so, extract the shared logic up one level (a Mapper or Assembler).
+
+## Fitness Functions
+
+- `npm run lint:arch` — runs dependency-cruiser; enforces the layer boundary rules above and bans orphan modules + circular dependencies.
+- Add new architecture rules under `fitness-functions-rules/architecture-rules/*.cjs` and import them from `.dependency-cruiser.cjs`.
+
+## Do / Don't (quick reference)
+
+✅ Do
+- Keep domain pure (no `pg`, no `aws-sdk`, no zod-against-env in `domain/`).
+- Define repository ports in `domain/`; implement them in `infrastructure/`.
+- Wire concrete adapters in `handler.ts`.
+- Validate HTTP input with zod schemas in `interfaces/http/schemas.ts` and map to domain `Input`/`Command` types before calling application services.
+- Use kebab-case file names with type-suffixes (`.service.ts`, `.pg-repository.ts`, `.command.ts`, `.projection.ts`).
+
+❌ Don't
+- Don't import `pg` or `zod` from anything in `src/domain/`.
+- Don't pass HTTP types (`APIGatewayProxyEvent`, etc.) into application services or domain.
+- Don't put business rules in `interfaces/http/`.
+- Don't have a service depend on another service of the same kind.
+- Don't introduce a `domain/types/` dumping ground — see `type-colocation.mdc`.

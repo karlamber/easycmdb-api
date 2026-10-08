@@ -1,0 +1,13 @@
+---
+description: Testing
+globs: *.spec.ts
+---
+* tests will use the `// Arrange` `// Act` `// Assert` comment convention.
+* We should have a test for every production class or function. (A test framework is not yet wired up in this repo; once it is, mirror the convention used in theseus-back-end.)
+* mocks in unit tests will have a suffix of Mock
+* spies in unit tests will have a suffix of Spy
+* tests will always live in `__specs__` folder next to the SUTs they test.
+* tests will always be named after the production code's filename, but with the `.spec.ts` suffix.
+* test suites name sut variable with the keyword `target`
+* tests will use random generated data where appropriate from the test-utils files.
+* No `any` types

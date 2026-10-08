@@ -1,0 +1,151 @@
+---
+description: AWS Lambda handler conventions for easycmdb-api (cold-start caching, ESM imports, esbuild bundling)
+globs: ['src/handler.ts', 'src/interfaces/http/**/*.ts']
+alwaysApply: false
+---
+
+# Lambda Handler Conventions
+
+`easycmdb-api` is an AWS Lambda function fronted by API Gateway. The runtime is **Node.js 24** (esbuild target `node24`), and the project ships as a single bundled CJS file built by esbuild.
+
+These conventions exist to keep cold-starts fast, deploys reproducible, and the handler itself thin.
+
+## Composition Root
+
+There is exactly one composition root: `src/handler.ts`. It is the only file in the project that:
+
+- Reads environment variables (via `loadConfig()`)
+- Constructs concrete infrastructure adapters (`PgApplicationRepository`, etc.)
+- Constructs concrete application services and wires them into a `RouterDeps` object
+- Exports the Lambda `handler` function
+
+Application code, domain code, and infrastructure adapters MUST NOT call `loadConfig()` or instantiate other adapters/services on their own. Receive dependencies via constructor.
+
+## Cold-Start Caching
+
+Lambda containers are reused across invocations. Cache anything expensive at module scope or in a `let cached` outside the handler — but only for safe, reusable values:
+
+- ✅ pg `Pool` (created once per container; `getOrCreatePool` uses `globalThis` so multiple bundles can share)
+- ✅ Parsed config object
+- ✅ Constructed application services and repositories
+
+Never cache:
+
+- ❌ Per-request state (auth tokens, request-scoped IDs)
+- ❌ Anything mutable that could leak data across tenants/users
+
+```typescript
+let cachedDeps: RouterDeps | undefined;
+
+function getDeps(): RouterDeps {
+	if (cachedDeps) return cachedDeps;
+	const config = loadConfig();
+	const pool = getOrCreatePool(config);
+	cachedDeps = { /* ... wire services ... */ };
+	return cachedDeps;
+}
+```
+
+## Handler Function Shape
+
+The exported `handler` should be **thin**:
+
+1. Get cached deps.
+2. Normalize the API Gateway event (v1 or v2) to a single `NormalizedHttpEvent` shape.
+3. Delegate to the router (`routeHttp`).
+4. Catch only at the very edge — for unexpected `Error`s, return a generic 500 with the message. `DomainError` and `ZodError` are translated by the router to proper HTTP responses; do not re-catch them here.
+
+```typescript
+export async function handler(
+	event: APIGatewayProxyEventV2 | APIGatewayProxyEvent,
+): Promise<APIGatewayProxyResultV2> {
+	try {
+		const deps = getDeps();
+		const normalized = normalizeApiGatewayEvent(event);
+		return await routeHttp(normalized, deps);
+	} catch (err) {
+		// Last-resort 500. Domain/validation errors are handled inside routeHttp.
+		const message = err instanceof Error ? err.message : 'Internal error';
+		return {
+			statusCode: 500,
+			headers: { 'content-type': 'application/json; charset=utf-8' },
+			body: JSON.stringify({ error: message }),
+		};
+	}
+}
+```
+
+## ESM Imports & `.js` Extensions
+
+`package.json` declares `"type": "module"` and `tsconfig.json` uses `"module": "NodeNext"`. This means every relative import inside `src/` MUST end with `.js` even when the source file is `.ts`:
+
+```typescript
+// ✅ correct
+import { loadConfig } from './config.js';
+import { ApplicationCrudService } from './application/application-crud.service.js';
+
+// ❌ wrong — will fail at runtime / under NodeNext
+import { loadConfig } from './config';
+import { ApplicationCrudService } from './application/application-crud.service.ts';
+```
+
+Type-only imports follow the same rule and use `import type`:
+
+```typescript
+import type { Application } from '../domain/application.js';
+```
+
+Bare-specifier imports from `node_modules` (e.g., `import { z } from 'zod'`) are unaffected.
+
+## esbuild Bundling
+
+The build is:
+
+```
+esbuild src/handler.ts --bundle --platform=node --target=node24 \
+  --format=cjs --outfile=dist/handler.js --sourcemap
+```
+
+Implications:
+
+- The output is **CJS** even though the source is ESM — esbuild handles the conversion.
+- The bundle includes everything reachable from `handler.ts`. Tree-shake by importing only what you need.
+- Anything at module top-level runs once per cold-start. Be intentional about what executes there.
+- AWS SDK v3 modules are NOT pre-included in the runtime — bundle them or add a Lambda Layer (see `scripts/deploy-poc.mjs` for the current zip layout).
+- Sourcemaps are emitted alongside `handler.js`; keep them for CloudWatch stack traces.
+
+## Request/Response Conventions
+
+Use the helpers in `interfaces/http/` rather than hand-rolling responses:
+
+- `json(statusCode, body, cors)` — JSON response
+- `noContent(cors)` — 204
+- `corsHeaders(config, requestOrigin)` — uniform CORS handling
+- `decodeBody(rawEvent)` — decodes base64 bodies if needed
+- `authenticateBasicAuth(authorization, accounts)` — auth gate returning the matched account or null
+- zod schemas + `to{Action}{Entity}Input(parsed)` mappers from `schemas.ts`
+
+The router catches `ZodError` (→ 400) and `DomainError` (→ status from the error). Throw those from application/domain code; don't translate to HTTP shapes inside the domain.
+
+## What Goes Where
+
+| Concern                                  | Layer / file                             |
+| ---------------------------------------- | ---------------------------------------- |
+| Lambda entrypoint, dep wiring, top-level catch | `src/handler.ts`                   |
+| Env parsing                              | `src/config.ts`                          |
+| API Gateway v1↔v2 normalization          | `src/interfaces/http/normalize-event.ts` |
+| Routing + per-route response helpers     | `src/interfaces/http/api-router.ts`      |
+| Request validation (zod)                 | `src/interfaces/http/schemas.ts`         |
+| CORS / Basic-auth                        | `src/interfaces/http/cors.ts` / `basic-auth.ts` |
+| Use cases (CRUD, workflows)              | `src/application/*.service.ts`           |
+| Domain types, ports, errors              | `src/domain/`                            |
+| pg pool, adapters, low-level db utils    | `src/infrastructure/`                    |
+
+## Anti-Patterns
+
+- ❌ Calling `loadConfig()` inside an application service or repository — pass values in.
+- ❌ Reading `process.env.X` outside `config.ts`.
+- ❌ Importing `aws-lambda` types into anything inside `src/application/` or `src/domain/`.
+- ❌ Re-creating the pg `Pool` on every invocation — always use `getOrCreatePool`.
+- ❌ Throwing raw HTTP-shaped errors from the domain — throw `DomainError` subclasses instead and let the interfaces layer map them.
+- ❌ Adding business logic to `routeHttp` — it should only validate, dispatch to a service, and shape the response.

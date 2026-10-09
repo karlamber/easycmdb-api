@@ -35,6 +35,61 @@ flowchart LR
 
 If you read three files: `src/handler.ts`, `src/interfaces/http/api-router.ts`, and one repository under `src/infrastructure/repositories/`.
 
+## Data model
+
+Five tables in the `argus` schema. `schema_migrations` is bookkeeping for `scripts/migrate.mjs` and is not part of the inventory.
+
+```mermaid
+erDiagram
+  landscape ||--o{ landscape_environment : has
+  hosting_provider ||--o{ landscape_environment : hosts
+  landscape ||--o{ resource : contains
+  landscape_environment ||--o{ resource : runs
+  application |o--o{ resource : "owns when scope is APPLICATION"
+
+  application {
+    bigint id PK
+    text app_alias UK
+    text data_class
+    text compliance
+    bool is_active
+  }
+  landscape {
+    bigint id PK
+    text name UK
+    text data_class
+    text iac_repository
+    bool is_active
+  }
+  hosting_provider {
+    bigint id PK
+    text code UK
+    text display_name
+    bool is_active
+  }
+  landscape_environment {
+    bigint id PK
+    bigint landscape_id FK
+    text environment_name
+    text hosting_provider FK
+    text provider_account_number
+    bool is_active
+  }
+  resource {
+    bigint id PK
+    bigint landscape_id FK
+    bigint landscape_environment_id FK
+    bigint application_id FK
+    text resource_scope
+    text name
+    text service
+    text provider_resource_id
+    bool is_active
+  }
+```
+
+A resource’s environment must belong to the same landscape. That is a composite foreign key on `(landscape_environment_id, landscape_id)`. `application_id` is required when `resource_scope` is `APPLICATION` and must be null when the scope is `ENVIRONMENT`. Deletes are soft: `is_active` flips to false, and `deleted_by` records the principal. `hosting_provider.code` is immutable because environments reference it.
+
 ## HTTP API
 
 Every route except `GET /health` and `OPTIONS *` requires auth. An optional `/api` prefix is stripped before routing.
@@ -133,7 +188,7 @@ Configuration is parsed in `src/config.ts`.
 
 ## Database
 
-Schema changes live in `db/migrations/` as plain SQL, applied in lexical order by `scripts/migrate.mjs`. Applied versions are recorded in `argus.schema_migrations`.
+The [data model](#data-model) above is the end state. Schema changes live in `db/migrations/` as plain SQL, applied in lexical order by `scripts/migrate.mjs`. Applied versions are recorded in `argus.schema_migrations`.
 
 Migrations are a separate step from deploying the function. Apply SQL before deploying code that reads or writes the new shape. The Lambda process does not run DDL.
 

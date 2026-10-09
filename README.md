@@ -188,7 +188,22 @@ Configuration is parsed in `src/config.ts`.
 
 ## Database
 
-The [data model](#data-model) above is the end state. Schema changes live in `db/migrations/` as plain SQL, applied in lexical order by `scripts/migrate.mjs`. Applied versions are recorded in `argus.schema_migrations`.
+The [data model](#data-model) above is the end state.
+
+### New database
+
+`db/bootstrap.sql` creates the `argus` schema, the five tables, the hosting-provider seed rows, and the migration stamps. After it runs, `npm run migrate` has nothing pending.
+
+```bash
+createdb easycmdb
+psql -d easycmdb -f db/bootstrap.sql
+```
+
+Point the API at that database with `PGHOST`, `PGUSER`, `PGPASSWORD`, and `PGDATABASE`. The script does not create a login role. On Aurora, the landscape `initial-config.sql` adds the `argus_lambda` role and grants. A commented copy of that block is at the bottom of `db/bootstrap.sql`.
+
+### Existing database
+
+Schema changes live in `db/migrations/` as plain SQL, applied in lexical order by `scripts/migrate.mjs`. Applied versions are recorded in `argus.schema_migrations`.
 
 Migrations are a separate step from deploying the function. Apply SQL before deploying code that reads or writes the new shape. The Lambda process does not run DDL.
 
@@ -203,7 +218,11 @@ npm run migrate:status
 npm run migrate
 ```
 
-A brand-new database can be bootstrapped from a snapshot that matches the migration end state. `npm run migrate:stamps` prints the version rows to record in that snapshot. `npm run migrate:check-bootstrap` checks a snapshot file you pass on the command line. Those snapshots are operational and are not part of this repository.
+`npm run migrate:stamps` prints the version rows to keep in `db/bootstrap.sql` and in each landscape `initial-config.sql`. `npm run migrate:check-bootstrap` checks those files:
+
+```bash
+npm run migrate:check-bootstrap -- db/bootstrap.sql
+```
 
 ## Deploy
 

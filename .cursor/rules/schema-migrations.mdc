@@ -15,8 +15,8 @@ Do **not** run DDL from Lambda. Schema is a separate step from `UpdateFunctionCo
 ## Dual-write (required)
 
 1. Add `db/migrations/YYYYMMDDHHMMSS_description.sql` — additive and idempotent (`IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`). Never edit a file that may already be applied.
-2. Fold the **end-state** DDL into every landscape bootstrap snapshot (`initial-config.sql`). Those files do **not** ALTER existing tables.
-3. Stamp every migration version in `argus.schema_migrations` in those snapshots. Copy from `npm run migrate:stamps`. Verify with `npm run migrate:check-bootstrap -- <path>`.
+2. Fold the **end-state** DDL into `db/bootstrap.sql` and into every landscape `initial-config.sql`. Those files do **not** ALTER existing tables.
+3. Stamp every migration version in `argus.schema_migrations` in those snapshots. Copy from `npm run migrate:stamps`. Verify with `npm run migrate:check-bootstrap -- db/bootstrap.sql <landscape initial-config.sql>`.
 
 ## Deploy order
 
@@ -28,7 +28,8 @@ Do **not** run DDL from Lambda. Schema is a separate step from `UpdateFunctionCo
 
 | Cluster | What to run |
 |---|---|
-| New | `initial-config.sql` as `postgres` (RDS Query Editor). Do not re-run it to evolve a live DB. |
+| New local database | `psql -d <db> -f db/bootstrap.sql` |
+| New Aurora cluster | landscape `initial-config.sql` as `postgres` (RDS Query Editor). Same schema as `db/bootstrap.sql`, plus `argus_lambda` grants. Do not re-run it to evolve a live DB. |
 | Existing | `npm run migrate` as an owner role, or paste the new SQL in Query Editor **and** insert the version. |
 
 `argus_lambda` is DML-only. Apply DDL as `postgres`.

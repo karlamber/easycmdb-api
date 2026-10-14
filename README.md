@@ -153,10 +153,22 @@ Audit columns (`created_by`, `updated_by`, `deleted_by`) are set from the authen
 
 ## Local development
 
-Node 24 (`.nvmrc`), npm.
+Node 24 (`.nvmrc`), npm. Postgres 17 comes from Docker Compose. Colima (or another engine) has to be running so `docker compose` can reach a daemon.
 
 ```bash
 npm ci
+cp .env.example .env.local
+docker compose up -d
+psql -h 127.0.0.1 -U easycmdb -d easycmdb -f db/bootstrap.sql
+psql -h 127.0.0.1 -U easycmdb -d easycmdb -f db/seed.sql
+npm run dev
+```
+
+`npm run dev` listens on `http://127.0.0.1:3000` and calls the same Lambda handler the cloud function uses. `GET /api/health` is anonymous. Sign in as `admin` / `admin` for Management, or `viewer` / `viewer` for read-only Discover. `db/seed.sql` loads a small demo inventory. If port 5432 is already in use, change the host port in `docker-compose.yml` and `PGPORT` in `.env.local` together.
+
+Then start [easycmdb-web](https://github.com/karlamber/easycmdb-web) with `VITE_AUTH_MODE=basic`.
+
+```bash
 npm run typecheck
 npm run lint:arch
 npm test

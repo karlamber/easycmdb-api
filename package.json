@@ -9,6 +9,7 @@
 	},
 	"scripts": {
 		"build": "esbuild src/handler.ts --bundle --platform=node --target=node24 --format=cjs --outfile=dist/handler.js --sourcemap",
+		"dev": "node --env-file-if-exists=.env.local scripts/dev-server.mjs",
 		"typecheck": "tsc --noEmit",
 		"type-check": "tsc -p tsconfig.json --noEmit",
 		"zip": "npm run build && rm -f bundle.zip && (cd dist && zip -q ../bundle.zip handler.js handler.js.map)",

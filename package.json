@@ -32,23 +32,23 @@
 		"prepare": "node --input-type=commonjs -e \"if (require('fs').existsSync('node_modules/husky')) require('child_process').execSync('husky', {stdio:'inherit'})\""
 	},
 	"dependencies": {
-		"pg": "^8.14.1",
+		"pg": "^8.23.1",
 		"zod": "^3.24.2"
 	},
 	"devDependencies": {
 		"@eslint/js": "^9.39.4",
-		"@types/aws-lambda": "^8.10.147",
+		"@types/aws-lambda": "^8.10.164",
 		"@types/node": "^22.14.1",
-		"@types/pg": "^8.11.11",
+		"@types/pg": "^8.23.1",
 		"dependency-cruiser": "^17.4.0",
-		"esbuild": "^0.25.2",
+		"esbuild": "^0.28.2",
 		"eslint": "^9.39.4",
 		"globals": "^15.15.0",
 		"husky": "^9.1.7",
 		"lint-staged": "^15.5.2",
-		"prettier": "^3.8.3",
+		"prettier": "^3.9.10",
 		"typescript": "^5.8.3",
-		"typescript-eslint": "^8.59.2",
+		"typescript-eslint": "^8.72.0",
 		"vitest": "^2.1.4"
 	},
 	"lint-staged": {

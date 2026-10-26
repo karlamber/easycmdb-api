@@ -6,7 +6,7 @@ The product name is easyCMDB. The technical alias `argus` remains in the Postgre
 
 ## Architecture
 
-Hexagonal layout. `dependency-cruiser` enforces the layer rules (`npm run lint:arch`).
+The code is a hexagonal layout, and `dependency-cruiser` enforces the layer rules when you run `npm run lint:arch`. Interfaces and infrastructure may depend on application and domain, while domain stays free of AWS and of the database driver, which is what keeps a use case testable without standing up Lambda. The three files that show the shape are `src/handler.ts`, where the composition root wires dependencies, `src/interfaces/http/api-router.ts`, where a request becomes a use case, and any one repository under `src/infrastructure/repositories/`.
 
 ```
 interfaces  ─┐
@@ -33,11 +33,9 @@ flowchart LR
 | Infrastructure   | `src/infrastructure/`  | `pg` pool and `Pg*Repository` adapters                             |
 | Observability    | `src/observability/`   | Structured JSON logger                                             |
 
-If you read three files: `src/handler.ts`, `src/interfaces/http/api-router.ts`, and one repository under `src/infrastructure/repositories/`.
-
 ## Data model
 
-Five tables in the `argus` schema. `schema_migrations` is bookkeeping for `scripts/migrate.mjs` and is not part of the inventory.
+Five tables in the `argus` schema hold the inventory, and `schema_migrations` is bookkeeping for `scripts/migrate.mjs` rather than part of that inventory.
 
 ```mermaid
 erDiagram
@@ -136,20 +134,9 @@ Every route except `GET /health` and `OPTIONS *` requires auth. An optional `/ap
 
 Align this with the SPA's `VITE_AUTH_MODE`.
 
-Basic auth has two tiers, both from environment variables:
+Basic auth has two tiers, both taken from environment variables. `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD` are the viewer, who can read, and `BASIC_AUTH_ADMIN_USER` and `BASIC_AUTH_ADMIN_PASSWORD` are the admin, who can read and write. A write from a viewer returns `403` with code `INSUFFICIENT_ROLE`. Password comparison uses `crypto.timingSafeEqual`, so the check does not leak the secret through timing.
 
-- `BASIC_AUTH_USER` / `BASIC_AUTH_PASSWORD` — viewer, read-only
-- `BASIC_AUTH_ADMIN_USER` / `BASIC_AUTH_ADMIN_PASSWORD` — admin, read and write
-
-Writes return `403` with code `INSUFFICIENT_ROLE` for viewers. Password comparison uses `crypto.timingSafeEqual`.
-
-### Errors
-
-- `ZodError` → `400 { error: 'Invalid request', details }`
-- `DomainError` → its `statusCode` plus `{ error, code }` (`NOT_FOUND` 404, `CONFLICT` 409, `VALIDATION_ERROR` 400, `UNAUTHORIZED` 401)
-- Anything else → `500 { error }`, logged as `handler.unhandled_error`
-
-Audit columns (`created_by`, `updated_by`, `deleted_by`) are set from the authenticated principal. Clients cannot send them.
+A `ZodError` becomes `400` with `{ error: 'Invalid request', details }`. A `DomainError` keeps its `statusCode` and returns `{ error, code }`, which is how `NOT_FOUND` is 404, `CONFLICT` is 409, `VALIDATION_ERROR` is 400, and `UNAUTHORIZED` is 401. Anything else becomes `500 { error }` and is logged as `handler.unhandled_error`. Audit columns (`created_by`, `updated_by`, `deleted_by`) are set from the authenticated principal, and clients cannot send them.
 
 ## Local development
 
@@ -217,12 +204,7 @@ Point the API at that database with `PGHOST`, `PGUSER`, `PGPASSWORD`, and `PGDAT
 
 Schema changes live in `db/migrations/` as plain SQL, applied in lexical order by `scripts/migrate.mjs`. Applied versions are recorded in `argus.schema_migrations`.
 
-Migrations are a separate step from deploying the function. Apply SQL before deploying code that reads or writes the new shape. The Lambda process does not run DDL.
-
-1. Write an additive migration (`IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`). Old code must still run after it applies.
-2. On the target database, apply SQL, then deploy the Lambda.
-3. Promote dev, then test, then prod. Do not deploy code that requires a column the database does not have yet.
-4. Drops, renames, and `NOT NULL` without a default are a later migration, after every environment runs code that no longer needs the old shape.
+Migrations are a separate step from deploying the function. Apply SQL before deploying code that reads or writes the new shape, because the Lambda process does not run DDL. Write an additive migration, using `IF NOT EXISTS` and `ADD COLUMN IF NOT EXISTS`, so the previous version of the function still runs after the SQL applies. On the target database, apply the SQL and then deploy the Lambda, and promote that pair through dev, then test, then prod, so code never requires a column the database does not have yet. Drops, renames, and `NOT NULL` without a default wait for a later migration, after every environment is running code that no longer needs the old shape.
 
 ```bash
 export PGHOST=... PGUSER=... PGPASSWORD=... PGDATABASE=...

@@ -18,8 +18,8 @@ alwaysApply: true
 - Use immutable data structures
 
 ## Testing
-- Test files location: `__specs__` folder adjacent to SUT
-- Test file naming: `{original-name}.spec.ts`
+- Test files location: `__tests__` folder adjacent to SUT
+- Test file naming: `{original-name}.test.ts`
 - Test descriptions: follow given/when/then
 - Test structure: use // Arrange, // Act, // Assert comments
 - Mock naming: suffix with Mock (e.g., serviceMock)
@@ -27,5 +27,5 @@ alwaysApply: true
 - Test data: use test-utils for random data generation
 - Variable naming: use 'target' for system under test
 - Coverage: minimum 80% for all production code
-- Required test for all production code except those in jest-e2e.json
+- Required test for all production code
 - Prefer ordinal matching like `toHaveBeenNthCalledWith` over plain argument matching `toHaveBeenCalledWith`

@@ -43,8 +43,8 @@ domain/transaction-scripts/
   upload-complete-ts/
     upload-complete.transaction.script.ts
     upload-complete.param.ts          # Colocated with TS
-    __specs__/
-      upload-complete.transaction.script.spec.ts
+    __tests__/
+      upload-complete.transaction.script.test.ts
 ```
 
 ### ✅ Good: Shared Projections

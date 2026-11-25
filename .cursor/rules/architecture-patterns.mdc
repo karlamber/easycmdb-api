@@ -281,7 +281,7 @@ export class PgApplicationRepository implements ApplicationRepository {
 
 ## Dependency Injection (Plain TS Edition)
 
-Pluto-api-lambda has **no DI container**. Wiring is explicit:
+easycmdb-api has **no DI container**. Wiring is explicit:
 
 ```typescript
 // src/handler.ts (composition root)

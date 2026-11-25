@@ -1,5 +1,5 @@
 /**
- * dependency-cruiser configuration for argus-api-lambda.
+ * dependency-cruiser configuration for easycmdb-api.
  *
  * Enforces hexagonal/DDD layer boundaries:
  *   interfaces -> application -> domain

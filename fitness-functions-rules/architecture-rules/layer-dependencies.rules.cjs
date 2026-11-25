@@ -1,7 +1,7 @@
 /**
  * Layer Dependency Rules
  *
- * Enforces hexagonal/DDD layer boundaries in argus-api-lambda. Dependencies
+ * Enforces hexagonal/DDD layer boundaries in easycmdb-api. Dependencies
  * must point inward toward the domain:
  *
  *   interfaces -> application -> domain

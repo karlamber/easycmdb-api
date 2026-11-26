@@ -24,6 +24,7 @@
 		"lint-staged": "lint-staged",
 		"test": "vitest run",
 		"test:watch": "vitest",
+		"openapi": "node scripts/generate-openapi.mjs",
 		"migrate": "node scripts/migrate.mjs",
 		"migrate:status": "node scripts/migrate.mjs --status",
 		"migrate:stamps": "node scripts/print-migration-stamps.mjs",

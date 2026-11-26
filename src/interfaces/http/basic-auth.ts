@@ -12,7 +12,9 @@ import { timingSafeEqual } from 'node:crypto';
  * Mapping from external claim values to these tokens lives in jwt-auth.ts
  * (Cognito JWT) and in buildAccounts() (HTTP Basic, admin/viewer only).
  */
-export type AuthRole = 'admin' | 'app_editor' | 'viewer';
+export const AUTH_ROLES = ['viewer', 'app_editor', 'admin'] as const;
+
+export type AuthRole = (typeof AUTH_ROLES)[number];
 
 export type AuthIdentity = {
 	user: string;

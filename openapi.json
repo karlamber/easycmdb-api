@@ -1,0 +1,2374 @@
+{
+	"openapi": "3.1.0",
+	"info": {
+		"title": "easyCMDB API",
+		"version": "0.1.0",
+		"description": "easyCMDB is a configuration inventory: landscapes contain environments, environments contain resources, and resources can belong to applications.\n\nConventions:\n- Ids are numeric strings, e.g. \"42\".\n- Lists are not paginated. Inactive (soft-deleted) rows are hidden unless include_inactive=true.\n- Deletes are soft. Audit fields (created_by, updated_by, deleted_by) come from the caller identity and cannot be set by clients.\n- Roles: viewer can read everything; app_editor can also write applications; admin can write everything. Each operation lists its lowest allowed role in x-required-role. Call GET /me to see your role.\n- Errors share one body shape, the Error schema."
+	},
+	"servers": [
+		{
+			"url": "/api",
+			"description": "Relative to the host that serves the easyCMDB web app."
+		}
+	],
+	"tags": [
+		{
+			"name": "System",
+			"description": "Health, identity, and this document."
+		},
+		{
+			"name": "Applications",
+			"description": "Software applications. Writable by app_editor and admin."
+		},
+		{
+			"name": "Landscapes",
+			"description": "Hosting landscapes, each a group of environments."
+		},
+		{
+			"name": "Landscape environments",
+			"description": "Environments (dev, tst, prod, ...) inside a landscape, each at one hosting provider account."
+		},
+		{
+			"name": "Resources",
+			"description": "Infrastructure resources in an environment, optionally owned by an application."
+		},
+		{
+			"name": "Hosting providers",
+			"description": "Lookup list of providers (AWS, AZURE, ...) that environments reference by code."
+		}
+	],
+	"security": [
+		{
+			"basicAuth": []
+		},
+		{
+			"bearerAuth": []
+		}
+	],
+	"paths": {
+		"/health": {
+			"get": {
+				"operationId": "getHealth",
+				"tags": ["System"],
+				"summary": "Liveness check",
+				"description": "Returns ok without authentication.",
+				"security": [],
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Health"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/me": {
+			"get": {
+				"operationId": "getMe",
+				"tags": ["System"],
+				"summary": "Who am I",
+				"description": "Returns the authenticated principal and its effective role. Call this first to learn what you are allowed to change.",
+				"x-required-role": "viewer",
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Me"
+								}
+							}
+						}
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					}
+				}
+			}
+		},
+		"/openapi.json": {
+			"get": {
+				"operationId": "getOpenApiDocument",
+				"tags": ["System"],
+				"summary": "This OpenAPI document",
+				"description": "Returns this document. Only the auth schemes the deployment accepts are listed.",
+				"x-required-role": "viewer",
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"description": "An OpenAPI 3.1 document."
+								}
+							}
+						}
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					}
+				}
+			}
+		},
+		"/applications": {
+			"get": {
+				"operationId": "listApplications",
+				"tags": ["Applications"],
+				"summary": "List applications",
+				"description": "Returns active applications, or all of them with include_inactive=true. Not paginated.",
+				"x-required-role": "viewer",
+				"parameters": [
+					{
+						"name": "include_inactive",
+						"in": "query",
+						"required": false,
+						"description": "Include soft-deleted rows. Accepts true or 1; anything else is false.",
+						"schema": {
+							"type": "boolean"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "array",
+									"items": {
+										"$ref": "#/components/schemas/Application"
+									}
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"500": {
+						"$ref": "#/components/responses/InternalError"
+					}
+				}
+			},
+			"post": {
+				"operationId": "createApplication",
+				"tags": ["Applications"],
+				"summary": "Create a application",
+				"description": "app_alias is required and must be unique (409 if taken). Duplicate compliance tags are dropped. Requires the app_editor or admin role.",
+				"x-required-role": "app_editor",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/CreateApplicationRequest"
+							}
+						}
+					}
+				},
+				"responses": {
+					"201": {
+						"description": "Created",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Application"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"409": {
+						"$ref": "#/components/responses/Conflict"
+					},
+					"500": {
+						"$ref": "#/components/responses/InternalError"
+					}
+				}
+			}
+		},
+		"/applications/{id}": {
+			"get": {
+				"operationId": "getApplication",
+				"tags": ["Applications"],
+				"summary": "Get a application",
+				"description": "Returns one application by id, including soft-deleted ones.",
+				"x-required-role": "viewer",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"description": "Record id.",
+						"schema": {
+							"type": "string",
+							"pattern": "^\\d+$"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Application"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"500": {
+						"$ref": "#/components/responses/InternalError"
+					}
+				}
+			},
+			"patch": {
+				"operationId": "updateApplication",
+				"tags": ["Applications"],
+				"summary": "Update a application",
+				"description": "Partial update: send only the fields to change. Changing app_alias to one already in use returns 409. Requires the app_editor or admin role.",
+				"x-required-role": "app_editor",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"description": "Record id.",
+						"schema": {
+							"type": "string",
+							"pattern": "^\\d+$"
+						}
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/UpdateApplicationRequest"
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Application"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"409": {
+						"$ref": "#/components/responses/Conflict"
+					},
+					"500": {
+						"$ref": "#/components/responses/InternalError"
+					}
+				}
+			},
+			"delete": {
+				"operationId": "deleteApplication",
+				"tags": ["Applications"],
+				"summary": "Delete a application",
+				"description": "Deletes are soft: the row stays, with is_active=false and deleted_by set, and is hidden from lists unless include_inactive=true. Deleting an already inactive row is a no-op that still returns 204. Resources that reference the application are not deactivated with it. Requires the app_editor or admin role.",
+				"x-required-role": "app_editor",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"description": "Record id.",
+						"schema": {
+							"type": "string",
+							"pattern": "^\\d+$"
+						}
+					}
+				],
+				"responses": {
+					"204": {
+						"description": "Deleted (no body)"
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"409": {
+						"$ref": "#/components/responses/Conflict"
+					},
+					"500": {
+						"$ref": "#/components/responses/InternalError"
+					}
+				}
+			}
+		},
+		"/landscapes": {
+			"get": {
+				"operationId": "listLandscapes",
+				"tags": ["Landscapes"],
+				"summary": "List landscapes",
+				"description": "Returns active landscapes, or all of them with include_inactive=true. Not paginated.",
+				"x-required-role": "viewer",
+				"parameters": [
+					{
+						"name": "include_inactive",
+						"in": "query",
+						"required": false,
+						"description": "Include soft-deleted rows. Accepts true or 1; anything else is false.",
+						"schema": {
+							"type": "boolean"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "array",
+									"items": {
+										"$ref": "#/components/schemas/Landscape"
+									}
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"500": {
+						"$ref": "#/components/responses/InternalError"
+					}
+				}
+			},
+			"post": {
+				"operationId": "createLandscape",
+				"tags": ["Landscapes"],
+				"summary": "Create a landscape",
+				"description": "name is required and must be unique (409 if taken). Requires the admin role.",
+				"x-required-role": "admin",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/CreateLandscapeRequest"
+							}
+						}
+					}
+				},
+				"responses": {
+					"201": {
+						"description": "Created",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Landscape"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"409": {
+						"$ref": "#/components/responses/Conflict"
+					},
+					"500": {
+						"$ref": "#/components/responses/InternalError"
+					}
+				}
+			}
+		},
+		"/landscapes/{id}": {
+			"get": {
+				"operationId": "getLandscape",
+				"tags": ["Landscapes"],
+				"summary": "Get a landscape",
+				"description": "Returns one landscape by id, including soft-deleted ones.",
+				"x-required-role": "viewer",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"description": "Record id.",
+						"schema": {
+							"type": "string",
+							"pattern": "^\\d+$"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Landscape"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"500": {
+						"$ref": "#/components/responses/InternalError"
+					}
+				}
+			},
+			"patch": {
+				"operationId": "updateLandscape",
+				"tags": ["Landscapes"],
+				"summary": "Update a landscape",
+				"description": "Partial update: send only the fields to change. Renaming to a name already in use returns 409. Requires the admin role.",
+				"x-required-role": "admin",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"description": "Record id.",
+						"schema": {
+							"type": "string",
+							"pattern": "^\\d+$"
+						}
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/UpdateLandscapeRequest"
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Landscape"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"409": {
+						"$ref": "#/components/responses/Conflict"
+					},
+					"500": {
+						"$ref": "#/components/responses/InternalError"
+					}
+				}
+			},
+			"delete": {
+				"operationId": "deleteLandscape",
+				"tags": ["Landscapes"],
+				"summary": "Delete a landscape",
+				"description": "Deletes are soft: the row stays, with is_active=false and deleted_by set, and is hidden from lists unless include_inactive=true. Deleting an already inactive row is a no-op that still returns 204. Environments and resources in the landscape are not deactivated with it. Requires the admin role.",
+				"x-required-role": "admin",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"description": "Record id.",
+						"schema": {
+							"type": "string",
+							"pattern": "^\\d+$"
+						}
+					}
+				],
+				"responses": {
+					"204": {
+						"description": "Deleted (no body)"
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"409": {
+						"$ref": "#/components/responses/Conflict"
+					},
+					"500": {
+						"$ref": "#/components/responses/InternalError"
+					}
+				}
+			}
+		},
+		"/landscape-environments": {
+			"get": {
+				"operationId": "listLandscapeEnvironments",
+				"tags": ["Landscape environments"],
+				"summary": "List landscape environments",
+				"description": "Returns active landscape environments, or all of them with include_inactive=true. Not paginated.",
+				"x-required-role": "viewer",
+				"parameters": [
+					{
+						"name": "include_inactive",
+						"in": "query",
+						"required": false,
+						"description": "Include soft-deleted rows. Accepts true or 1; anything else is false.",
+						"schema": {
+							"type": "boolean"
+						}
+					},
+					{
+						"name": "landscape_id",
+						"in": "query",
+						"required": false,
+						"description": "Only return rows belonging to this landscape id.",
+						"schema": {
+							"type": "string",
+							"pattern": "^\\d+$"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "array",
+									"items": {
+										"$ref": "#/components/schemas/LandscapeEnvironment"
+									}
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"500": {
+						"$ref": "#/components/responses/InternalError"
+					}
+				}
+			},
+			"post": {
+				"operationId": "createLandscapeEnvironment",
+				"tags": ["Landscape environments"],
+				"summary": "Create a landscape environment",
+				"description": "hosting_provider must be the code of an active hosting provider (it is upper-cased first). environment_name must be unique within the landscape, and hosting_provider plus provider_account_number must be unique (409). Requires the admin role.",
+				"x-required-role": "admin",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/CreateLandscapeEnvironmentRequest"
+							}
+						}
+					}
+				},
+				"responses": {
+					"201": {
+						"description": "Created",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/LandscapeEnvironment"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"409": {
+						"$ref": "#/components/responses/Conflict"
+					},
+					"500": {
+						"$ref": "#/components/responses/InternalError"
+					}
+				}
+			}
+		},
+		"/landscape-environments/{id}": {
+			"get": {
+				"operationId": "getLandscapeEnvironment",
+				"tags": ["Landscape environments"],
+				"summary": "Get a landscape environment",
+				"description": "Returns one landscape environment by id, including soft-deleted ones.",
+				"x-required-role": "viewer",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"description": "Record id.",
+						"schema": {
+							"type": "string",
+							"pattern": "^\\d+$"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/LandscapeEnvironment"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"500": {
+						"$ref": "#/components/responses/InternalError"
+					}
+				}
+			},
+			"patch": {
+				"operationId": "updateLandscapeEnvironment",
+				"tags": ["Landscape environments"],
+				"summary": "Update a landscape environment",
+				"description": "Partial update: send only the fields to change. The same uniqueness and hosting_provider rules as create apply. Requires the admin role.",
+				"x-required-role": "admin",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"description": "Record id.",
+						"schema": {
+							"type": "string",
+							"pattern": "^\\d+$"
+						}
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/UpdateLandscapeEnvironmentRequest"
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/LandscapeEnvironment"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"409": {
+						"$ref": "#/components/responses/Conflict"
+					},
+					"500": {
+						"$ref": "#/components/responses/InternalError"
+					}
+				}
+			},
+			"delete": {
+				"operationId": "deleteLandscapeEnvironment",
+				"tags": ["Landscape environments"],
+				"summary": "Delete a landscape environment",
+				"description": "Deletes are soft: the row stays, with is_active=false and deleted_by set, and is hidden from lists unless include_inactive=true. Deleting an already inactive row is a no-op that still returns 204. Resources in the environment are not deactivated with it. Requires the admin role.",
+				"x-required-role": "admin",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"description": "Record id.",
+						"schema": {
+							"type": "string",
+							"pattern": "^\\d+$"
+						}
+					}
+				],
+				"responses": {
+					"204": {
+						"description": "Deleted (no body)"
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"409": {
+						"$ref": "#/components/responses/Conflict"
+					},
+					"500": {
+						"$ref": "#/components/responses/InternalError"
+					}
+				}
+			}
+		},
+		"/resources": {
+			"get": {
+				"operationId": "listResources",
+				"tags": ["Resources"],
+				"summary": "List resources",
+				"description": "Returns active resources, or all of them with include_inactive=true. Not paginated.",
+				"x-required-role": "viewer",
+				"parameters": [
+					{
+						"name": "include_inactive",
+						"in": "query",
+						"required": false,
+						"description": "Include soft-deleted rows. Accepts true or 1; anything else is false.",
+						"schema": {
+							"type": "boolean"
+						}
+					},
+					{
+						"name": "landscape_id",
+						"in": "query",
+						"required": false,
+						"description": "Only return rows belonging to this landscape id.",
+						"schema": {
+							"type": "string",
+							"pattern": "^\\d+$"
+						}
+					},
+					{
+						"name": "landscape_environment_id",
+						"in": "query",
+						"required": false,
+						"description": "Only return rows belonging to this landscape environment id.",
+						"schema": {
+							"type": "string",
+							"pattern": "^\\d+$"
+						}
+					},
+					{
+						"name": "application_id",
+						"in": "query",
+						"required": false,
+						"description": "Only return rows belonging to this application id.",
+						"schema": {
+							"type": "string",
+							"pattern": "^\\d+$"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "array",
+									"items": {
+										"$ref": "#/components/schemas/Resource"
+									}
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"500": {
+						"$ref": "#/components/responses/InternalError"
+					}
+				}
+			},
+			"post": {
+				"operationId": "createResource",
+				"tags": ["Resources"],
+				"summary": "Create a resource",
+				"description": "landscape_environment_id must belong to landscape_id. When resource_scope is APPLICATION, application_id is required; when ENVIRONMENT, it must be null (400 otherwise). provider_resource_id must be unique within the environment (409). Requires the admin role.",
+				"x-required-role": "admin",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/CreateResourceRequest"
+							}
+						}
+					}
+				},
+				"responses": {
+					"201": {
+						"description": "Created",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Resource"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"409": {
+						"$ref": "#/components/responses/Conflict"
+					},
+					"500": {
+						"$ref": "#/components/responses/InternalError"
+					}
+				}
+			}
+		},
+		"/resources/{id}": {
+			"get": {
+				"operationId": "getResource",
+				"tags": ["Resources"],
+				"summary": "Get a resource",
+				"description": "Returns one resource by id, including soft-deleted ones.",
+				"x-required-role": "viewer",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"description": "Record id.",
+						"schema": {
+							"type": "string",
+							"pattern": "^\\d+$"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Resource"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"500": {
+						"$ref": "#/components/responses/InternalError"
+					}
+				}
+			},
+			"patch": {
+				"operationId": "updateResource",
+				"tags": ["Resources"],
+				"summary": "Update a resource",
+				"description": "Partial update: send only the fields to change. The scope, landscape, and uniqueness rules from create are re-checked against the merged record. Requires the admin role.",
+				"x-required-role": "admin",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"description": "Record id.",
+						"schema": {
+							"type": "string",
+							"pattern": "^\\d+$"
+						}
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/UpdateResourceRequest"
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Resource"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"409": {
+						"$ref": "#/components/responses/Conflict"
+					},
+					"500": {
+						"$ref": "#/components/responses/InternalError"
+					}
+				}
+			},
+			"delete": {
+				"operationId": "deleteResource",
+				"tags": ["Resources"],
+				"summary": "Delete a resource",
+				"description": "Deletes are soft: the row stays, with is_active=false and deleted_by set, and is hidden from lists unless include_inactive=true. Deleting an already inactive row is a no-op that still returns 204. Requires the admin role.",
+				"x-required-role": "admin",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"description": "Record id.",
+						"schema": {
+							"type": "string",
+							"pattern": "^\\d+$"
+						}
+					}
+				],
+				"responses": {
+					"204": {
+						"description": "Deleted (no body)"
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"409": {
+						"$ref": "#/components/responses/Conflict"
+					},
+					"500": {
+						"$ref": "#/components/responses/InternalError"
+					}
+				}
+			}
+		},
+		"/hosting-providers": {
+			"get": {
+				"operationId": "listHostingProviders",
+				"tags": ["Hosting providers"],
+				"summary": "List hosting providers",
+				"description": "Returns active hosting providers, or all of them with include_inactive=true. Not paginated.",
+				"x-required-role": "viewer",
+				"parameters": [
+					{
+						"name": "include_inactive",
+						"in": "query",
+						"required": false,
+						"description": "Include soft-deleted rows. Accepts true or 1; anything else is false.",
+						"schema": {
+							"type": "boolean"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "array",
+									"items": {
+										"$ref": "#/components/schemas/HostingProvider"
+									}
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"500": {
+						"$ref": "#/components/responses/InternalError"
+					}
+				}
+			},
+			"post": {
+				"operationId": "createHostingProvider",
+				"tags": ["Hosting providers"],
+				"summary": "Create a hosting provider",
+				"description": "code is upper-cased, must be SCREAMING_SNAKE, must be unique (409), and cannot be changed later. Requires the admin role.",
+				"x-required-role": "admin",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/CreateHostingProviderRequest"
+							}
+						}
+					}
+				},
+				"responses": {
+					"201": {
+						"description": "Created",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/HostingProvider"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"409": {
+						"$ref": "#/components/responses/Conflict"
+					},
+					"500": {
+						"$ref": "#/components/responses/InternalError"
+					}
+				}
+			}
+		},
+		"/hosting-providers/{id}": {
+			"get": {
+				"operationId": "getHostingProvider",
+				"tags": ["Hosting providers"],
+				"summary": "Get a hosting provider",
+				"description": "Returns one hosting provider by id, including soft-deleted ones.",
+				"x-required-role": "viewer",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"description": "Record id.",
+						"schema": {
+							"type": "string",
+							"pattern": "^\\d+$"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/HostingProvider"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"500": {
+						"$ref": "#/components/responses/InternalError"
+					}
+				}
+			},
+			"patch": {
+				"operationId": "updateHostingProvider",
+				"tags": ["Hosting providers"],
+				"summary": "Update a hosting provider",
+				"description": "Partial update: send only the fields to change. code is immutable, so it is not accepted here. Requires the admin role.",
+				"x-required-role": "admin",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"description": "Record id.",
+						"schema": {
+							"type": "string",
+							"pattern": "^\\d+$"
+						}
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/UpdateHostingProviderRequest"
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/HostingProvider"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"409": {
+						"$ref": "#/components/responses/Conflict"
+					},
+					"500": {
+						"$ref": "#/components/responses/InternalError"
+					}
+				}
+			},
+			"delete": {
+				"operationId": "deleteHostingProvider",
+				"tags": ["Hosting providers"],
+				"summary": "Delete a hosting provider",
+				"description": "Deletes are soft: the row stays, with is_active=false and deleted_by set, and is hidden from lists unless include_inactive=true. Deleting an already inactive row is a no-op that still returns 204. Fails with 409 while active landscape environments still use the code. Requires the admin role.",
+				"x-required-role": "admin",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"description": "Record id.",
+						"schema": {
+							"type": "string",
+							"pattern": "^\\d+$"
+						}
+					}
+				],
+				"responses": {
+					"204": {
+						"description": "Deleted (no body)"
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/Forbidden"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"409": {
+						"$ref": "#/components/responses/Conflict"
+					},
+					"500": {
+						"$ref": "#/components/responses/InternalError"
+					}
+				}
+			}
+		}
+	},
+	"components": {
+		"securitySchemes": {
+			"basicAuth": {
+				"type": "http",
+				"scheme": "basic",
+				"description": "HTTP Basic with a configured viewer or admin account."
+			},
+			"bearerAuth": {
+				"type": "http",
+				"scheme": "bearer",
+				"bearerFormat": "JWT",
+				"description": "Cognito access or ID token. The role comes from the custom:roles or cognito:groups claim."
+			}
+		},
+		"schemas": {
+			"DataClass": {
+				"type": "string",
+				"enum": ["PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED"],
+				"description": "Data sensitivity classification, from least to most sensitive."
+			},
+			"ComplianceTag": {
+				"type": "string",
+				"enum": [
+					"PII",
+					"PHI",
+					"SEALED",
+					"NDA",
+					"HIPAA",
+					"CJIS",
+					"CMMC",
+					"CCPA",
+					"SOC2",
+					"GDPR"
+				],
+				"description": "Compliance or regulatory framework tag."
+			},
+			"Application": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string",
+						"pattern": "^\\d+$",
+						"description": "Numeric database id, serialized as a string."
+					},
+					"app_alias": {
+						"type": "string",
+						"description": "Short technical alias, unique across applications."
+					},
+					"business_name": {
+						"description": "Human-friendly application name.",
+						"type": ["string", "null"]
+					},
+					"description": {
+						"description": "Free-text description.",
+						"type": ["string", "null"]
+					},
+					"data_class": {
+						"anyOf": [
+							{
+								"$ref": "#/components/schemas/DataClass"
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"compliance": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/ComplianceTag"
+						},
+						"description": "Distinct compliance tags. Always an array."
+					},
+					"business_contact": {
+						"description": "Business owner contact.",
+						"type": ["string", "null"]
+					},
+					"development_contact": {
+						"description": "Development team contact.",
+						"type": ["string", "null"]
+					},
+					"support_contact": {
+						"description": "Support team contact.",
+						"type": ["string", "null"]
+					},
+					"source_repository": {
+						"description": "Source code repository URL.",
+						"type": ["string", "null"]
+					},
+					"prod_url": {
+						"description": "Production URL.",
+						"type": ["string", "null"]
+					},
+					"runbook_url": {
+						"description": "Runbook URL.",
+						"type": ["string", "null"]
+					},
+					"is_active": {
+						"type": "boolean",
+						"description": "False once the record is soft-deleted. Inactive rows are hidden from lists unless include_inactive=true."
+					},
+					"created_at": {
+						"type": "string",
+						"description": "ISO 8601 timestamp."
+					},
+					"updated_at": {
+						"type": "string",
+						"description": "ISO 8601 timestamp."
+					},
+					"created_by": {
+						"description": "Principal that created the record.",
+						"type": ["string", "null"]
+					},
+					"updated_by": {
+						"description": "Principal that last updated the record.",
+						"type": ["string", "null"]
+					},
+					"deleted_by": {
+						"description": "Principal that soft-deleted the record, or null while active.",
+						"type": ["string", "null"]
+					}
+				},
+				"required": [
+					"id",
+					"app_alias",
+					"business_name",
+					"description",
+					"data_class",
+					"compliance",
+					"business_contact",
+					"development_contact",
+					"support_contact",
+					"source_repository",
+					"prod_url",
+					"runbook_url",
+					"is_active",
+					"created_at",
+					"updated_at",
+					"created_by",
+					"updated_by",
+					"deleted_by"
+				],
+				"description": "A software application tracked by the CMDB."
+			},
+			"CreateApplicationRequest": {
+				"type": "object",
+				"properties": {
+					"app_alias": {
+						"type": "string"
+					},
+					"business_name": {
+						"type": ["string", "null"]
+					},
+					"description": {
+						"type": ["string", "null"]
+					},
+					"data_class": {
+						"anyOf": [
+							{
+								"type": "string",
+								"enum": [
+									"PUBLIC",
+									"INTERNAL",
+									"CONFIDENTIAL",
+									"RESTRICTED"
+								]
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"compliance": {
+						"anyOf": [
+							{
+								"type": "array",
+								"items": {
+									"type": "string",
+									"enum": [
+										"PII",
+										"PHI",
+										"SEALED",
+										"NDA",
+										"HIPAA",
+										"CJIS",
+										"CMMC",
+										"CCPA",
+										"SOC2",
+										"GDPR"
+									]
+								}
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"business_contact": {
+						"type": ["string", "null"]
+					},
+					"development_contact": {
+						"type": ["string", "null"]
+					},
+					"support_contact": {
+						"type": ["string", "null"]
+					},
+					"source_repository": {
+						"type": ["string", "null"]
+					},
+					"prod_url": {
+						"type": ["string", "null"]
+					},
+					"runbook_url": {
+						"type": ["string", "null"]
+					},
+					"is_active": {
+						"type": "boolean"
+					}
+				},
+				"required": ["app_alias"]
+			},
+			"UpdateApplicationRequest": {
+				"type": "object",
+				"properties": {
+					"app_alias": {
+						"type": "string"
+					},
+					"business_name": {
+						"type": ["string", "null"]
+					},
+					"description": {
+						"type": ["string", "null"]
+					},
+					"data_class": {
+						"anyOf": [
+							{
+								"type": "string",
+								"enum": [
+									"PUBLIC",
+									"INTERNAL",
+									"CONFIDENTIAL",
+									"RESTRICTED"
+								]
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"compliance": {
+						"anyOf": [
+							{
+								"type": "array",
+								"items": {
+									"type": "string",
+									"enum": [
+										"PII",
+										"PHI",
+										"SEALED",
+										"NDA",
+										"HIPAA",
+										"CJIS",
+										"CMMC",
+										"CCPA",
+										"SOC2",
+										"GDPR"
+									]
+								}
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"business_contact": {
+						"type": ["string", "null"]
+					},
+					"development_contact": {
+						"type": ["string", "null"]
+					},
+					"support_contact": {
+						"type": ["string", "null"]
+					},
+					"source_repository": {
+						"type": ["string", "null"]
+					},
+					"prod_url": {
+						"type": ["string", "null"]
+					},
+					"runbook_url": {
+						"type": ["string", "null"]
+					},
+					"is_active": {
+						"type": "boolean"
+					}
+				}
+			},
+			"Landscape": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string",
+						"pattern": "^\\d+$",
+						"description": "Numeric database id, serialized as a string."
+					},
+					"name": {
+						"type": "string",
+						"description": "Landscape name, unique."
+					},
+					"description": {
+						"description": "Free-text description.",
+						"type": ["string", "null"]
+					},
+					"organization": {
+						"description": "Owning organization.",
+						"type": ["string", "null"]
+					},
+					"devops_contact": {
+						"description": "DevOps contact.",
+						"type": ["string", "null"]
+					},
+					"data_class": {
+						"anyOf": [
+							{
+								"$ref": "#/components/schemas/DataClass"
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"runbook_url": {
+						"description": "Runbook URL.",
+						"type": ["string", "null"]
+					},
+					"iac_repository": {
+						"description": "Infrastructure-as-code repository URL.",
+						"type": ["string", "null"]
+					},
+					"is_active": {
+						"type": "boolean",
+						"description": "False once the record is soft-deleted. Inactive rows are hidden from lists unless include_inactive=true."
+					},
+					"created_at": {
+						"type": "string",
+						"description": "ISO 8601 timestamp."
+					},
+					"updated_at": {
+						"type": "string",
+						"description": "ISO 8601 timestamp."
+					},
+					"created_by": {
+						"description": "Principal that created the record.",
+						"type": ["string", "null"]
+					},
+					"updated_by": {
+						"description": "Principal that last updated the record.",
+						"type": ["string", "null"]
+					},
+					"deleted_by": {
+						"description": "Principal that soft-deleted the record, or null while active.",
+						"type": ["string", "null"]
+					}
+				},
+				"required": [
+					"id",
+					"name",
+					"description",
+					"organization",
+					"devops_contact",
+					"data_class",
+					"runbook_url",
+					"iac_repository",
+					"is_active",
+					"created_at",
+					"updated_at",
+					"created_by",
+					"updated_by",
+					"deleted_by"
+				],
+				"description": "A hosting landscape (a group of environments, e.g. one per platform team)."
+			},
+			"CreateLandscapeRequest": {
+				"type": "object",
+				"properties": {
+					"name": {
+						"type": "string"
+					},
+					"description": {
+						"type": ["string", "null"]
+					},
+					"organization": {
+						"type": ["string", "null"]
+					},
+					"devops_contact": {
+						"type": ["string", "null"]
+					},
+					"data_class": {
+						"anyOf": [
+							{
+								"type": "string",
+								"enum": [
+									"PUBLIC",
+									"INTERNAL",
+									"CONFIDENTIAL",
+									"RESTRICTED"
+								]
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"runbook_url": {
+						"type": ["string", "null"]
+					},
+					"iac_repository": {
+						"type": ["string", "null"]
+					},
+					"is_active": {
+						"type": "boolean"
+					}
+				},
+				"required": ["name"]
+			},
+			"UpdateLandscapeRequest": {
+				"type": "object",
+				"properties": {
+					"name": {
+						"type": "string"
+					},
+					"description": {
+						"type": ["string", "null"]
+					},
+					"organization": {
+						"type": ["string", "null"]
+					},
+					"devops_contact": {
+						"type": ["string", "null"]
+					},
+					"data_class": {
+						"anyOf": [
+							{
+								"type": "string",
+								"enum": [
+									"PUBLIC",
+									"INTERNAL",
+									"CONFIDENTIAL",
+									"RESTRICTED"
+								]
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"runbook_url": {
+						"type": ["string", "null"]
+					},
+					"iac_repository": {
+						"type": ["string", "null"]
+					},
+					"is_active": {
+						"type": "boolean"
+					}
+				}
+			},
+			"LandscapeEnvironment": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string",
+						"pattern": "^\\d+$",
+						"description": "Numeric database id, serialized as a string."
+					},
+					"landscape_id": {
+						"type": "string",
+						"pattern": "^\\d+$",
+						"description": "Landscape this environment belongs to."
+					},
+					"environment_name": {
+						"type": "string",
+						"description": "Environment name, e.g. dev, tst, prod."
+					},
+					"hosting_provider": {
+						"type": "string",
+						"description": "Hosting provider code, e.g. AWS, AZURE, GCP, ONPREM."
+					},
+					"provider_account_name": {
+						"description": "Account or subscription name at the provider.",
+						"type": ["string", "null"]
+					},
+					"provider_account_number": {
+						"description": "Account or subscription id at the provider.",
+						"type": ["string", "null"]
+					},
+					"direct_link": {
+						"description": "Console link for the account.",
+						"type": ["string", "null"]
+					},
+					"is_active": {
+						"type": "boolean",
+						"description": "False once the record is soft-deleted. Inactive rows are hidden from lists unless include_inactive=true."
+					},
+					"created_at": {
+						"type": "string",
+						"description": "ISO 8601 timestamp."
+					},
+					"updated_at": {
+						"type": "string",
+						"description": "ISO 8601 timestamp."
+					},
+					"created_by": {
+						"description": "Principal that created the record.",
+						"type": ["string", "null"]
+					},
+					"updated_by": {
+						"description": "Principal that last updated the record.",
+						"type": ["string", "null"]
+					},
+					"deleted_by": {
+						"description": "Principal that soft-deleted the record, or null while active.",
+						"type": ["string", "null"]
+					}
+				},
+				"required": [
+					"id",
+					"landscape_id",
+					"environment_name",
+					"hosting_provider",
+					"provider_account_name",
+					"provider_account_number",
+					"direct_link",
+					"is_active",
+					"created_at",
+					"updated_at",
+					"created_by",
+					"updated_by",
+					"deleted_by"
+				],
+				"description": "An environment within a landscape, hosted at one provider."
+			},
+			"CreateLandscapeEnvironmentRequest": {
+				"type": "object",
+				"properties": {
+					"landscape_id": {
+						"type": "string",
+						"pattern": "^\\d+$"
+					},
+					"environment_name": {
+						"type": "string"
+					},
+					"hosting_provider": {
+						"type": "string"
+					},
+					"provider_account_name": {
+						"type": ["string", "null"]
+					},
+					"provider_account_number": {
+						"type": ["string", "null"]
+					},
+					"direct_link": {
+						"type": ["string", "null"]
+					},
+					"is_active": {
+						"type": "boolean"
+					}
+				},
+				"required": [
+					"landscape_id",
+					"environment_name",
+					"hosting_provider"
+				]
+			},
+			"UpdateLandscapeEnvironmentRequest": {
+				"type": "object",
+				"properties": {
+					"environment_name": {
+						"type": "string"
+					},
+					"hosting_provider": {
+						"type": "string"
+					},
+					"provider_account_name": {
+						"type": ["string", "null"]
+					},
+					"provider_account_number": {
+						"type": ["string", "null"]
+					},
+					"direct_link": {
+						"type": ["string", "null"]
+					},
+					"is_active": {
+						"type": "boolean"
+					},
+					"landscape_id": {
+						"type": "string",
+						"pattern": "^\\d+$"
+					}
+				}
+			},
+			"Resource": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string",
+						"pattern": "^\\d+$",
+						"description": "Numeric database id, serialized as a string."
+					},
+					"landscape_id": {
+						"type": "string",
+						"pattern": "^\\d+$",
+						"description": "Landscape the resource lives in."
+					},
+					"landscape_environment_id": {
+						"type": "string",
+						"pattern": "^\\d+$",
+						"description": "Environment the resource lives in. Must belong to landscape_id."
+					},
+					"application_id": {
+						"anyOf": [
+							{
+								"type": "string",
+								"pattern": "^\\d+$",
+								"description": "Numeric database id, serialized as a string."
+							},
+							{
+								"type": "null"
+							}
+						],
+						"description": "Owning application. Set when resource_scope is APPLICATION, null when ENVIRONMENT."
+					},
+					"resource_scope": {
+						"type": "string",
+						"enum": ["APPLICATION", "ENVIRONMENT"],
+						"description": "APPLICATION: owned by one application. ENVIRONMENT: shared by the environment."
+					},
+					"name": {
+						"type": "string",
+						"description": "Resource name."
+					},
+					"description": {
+						"description": "Free-text description.",
+						"type": ["string", "null"]
+					},
+					"region": {
+						"description": "Provider region, e.g. us-east-1.",
+						"type": ["string", "null"]
+					},
+					"service": {
+						"description": "Provider service, e.g. RDS, Lambda.",
+						"type": ["string", "null"]
+					},
+					"resource_type": {
+						"description": "Resource type within the service.",
+						"type": ["string", "null"]
+					},
+					"provider_resource_id": {
+						"description": "Provider-native identifier, e.g. an ARN.",
+						"type": ["string", "null"]
+					},
+					"is_active": {
+						"type": "boolean",
+						"description": "False once the record is soft-deleted. Inactive rows are hidden from lists unless include_inactive=true."
+					},
+					"created_at": {
+						"type": "string",
+						"description": "ISO 8601 timestamp."
+					},
+					"updated_at": {
+						"type": "string",
+						"description": "ISO 8601 timestamp."
+					},
+					"created_by": {
+						"description": "Principal that created the record.",
+						"type": ["string", "null"]
+					},
+					"updated_by": {
+						"description": "Principal that last updated the record.",
+						"type": ["string", "null"]
+					},
+					"deleted_by": {
+						"description": "Principal that soft-deleted the record, or null while active.",
+						"type": ["string", "null"]
+					}
+				},
+				"required": [
+					"id",
+					"landscape_id",
+					"landscape_environment_id",
+					"application_id",
+					"resource_scope",
+					"name",
+					"description",
+					"region",
+					"service",
+					"resource_type",
+					"provider_resource_id",
+					"is_active",
+					"created_at",
+					"updated_at",
+					"created_by",
+					"updated_by",
+					"deleted_by"
+				],
+				"description": "A cloud or on-prem resource in an environment."
+			},
+			"CreateResourceRequest": {
+				"type": "object",
+				"properties": {
+					"landscape_id": {
+						"type": "string",
+						"pattern": "^\\d+$"
+					},
+					"landscape_environment_id": {
+						"type": "string",
+						"pattern": "^\\d+$"
+					},
+					"application_id": {
+						"anyOf": [
+							{
+								"type": "string",
+								"pattern": "^\\d+$"
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"resource_scope": {
+						"type": "string",
+						"enum": ["APPLICATION", "ENVIRONMENT"]
+					},
+					"name": {
+						"type": "string"
+					},
+					"description": {
+						"type": ["string", "null"]
+					},
+					"region": {
+						"type": ["string", "null"]
+					},
+					"service": {
+						"type": ["string", "null"]
+					},
+					"resource_type": {
+						"type": ["string", "null"]
+					},
+					"provider_resource_id": {
+						"type": ["string", "null"]
+					},
+					"is_active": {
+						"type": "boolean"
+					}
+				},
+				"required": [
+					"landscape_id",
+					"landscape_environment_id",
+					"resource_scope",
+					"name"
+				]
+			},
+			"UpdateResourceRequest": {
+				"type": "object",
+				"properties": {
+					"landscape_id": {
+						"type": "string",
+						"pattern": "^\\d+$"
+					},
+					"landscape_environment_id": {
+						"type": "string",
+						"pattern": "^\\d+$"
+					},
+					"application_id": {
+						"anyOf": [
+							{
+								"type": "string",
+								"pattern": "^\\d+$"
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"resource_scope": {
+						"type": "string",
+						"enum": ["APPLICATION", "ENVIRONMENT"]
+					},
+					"name": {
+						"type": "string"
+					},
+					"description": {
+						"type": ["string", "null"]
+					},
+					"region": {
+						"type": ["string", "null"]
+					},
+					"service": {
+						"type": ["string", "null"]
+					},
+					"resource_type": {
+						"type": ["string", "null"]
+					},
+					"provider_resource_id": {
+						"type": ["string", "null"]
+					},
+					"is_active": {
+						"type": "boolean"
+					}
+				}
+			},
+			"HostingProvider": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string",
+						"pattern": "^\\d+$",
+						"description": "Numeric database id, serialized as a string."
+					},
+					"code": {
+						"type": "string",
+						"description": "Immutable SCREAMING_SNAKE code, e.g. AWS."
+					},
+					"display_name": {
+						"type": "string",
+						"description": "Display name."
+					},
+					"description": {
+						"description": "Free-text description.",
+						"type": ["string", "null"]
+					},
+					"is_active": {
+						"type": "boolean",
+						"description": "False once the record is soft-deleted. Inactive rows are hidden from lists unless include_inactive=true."
+					},
+					"created_at": {
+						"type": "string",
+						"description": "ISO 8601 timestamp."
+					},
+					"updated_at": {
+						"type": "string",
+						"description": "ISO 8601 timestamp."
+					},
+					"created_by": {
+						"description": "Principal that created the record.",
+						"type": ["string", "null"]
+					},
+					"updated_by": {
+						"description": "Principal that last updated the record.",
+						"type": ["string", "null"]
+					},
+					"deleted_by": {
+						"description": "Principal that soft-deleted the record, or null while active.",
+						"type": ["string", "null"]
+					}
+				},
+				"required": [
+					"id",
+					"code",
+					"display_name",
+					"description",
+					"is_active",
+					"created_at",
+					"updated_at",
+					"created_by",
+					"updated_by",
+					"deleted_by"
+				],
+				"description": "A hosting provider that environments can reference by code."
+			},
+			"CreateHostingProviderRequest": {
+				"type": "object",
+				"properties": {
+					"code": {
+						"type": "string"
+					},
+					"display_name": {
+						"type": "string"
+					},
+					"description": {
+						"type": ["string", "null"]
+					},
+					"is_active": {
+						"type": "boolean"
+					}
+				},
+				"required": ["code", "display_name"]
+			},
+			"UpdateHostingProviderRequest": {
+				"type": "object",
+				"properties": {
+					"display_name": {
+						"type": "string"
+					},
+					"description": {
+						"type": ["string", "null"]
+					},
+					"is_active": {
+						"type": "boolean"
+					}
+				}
+			},
+			"Me": {
+				"type": "object",
+				"properties": {
+					"user": {
+						"type": "string",
+						"description": "Authenticated principal."
+					},
+					"role": {
+						"type": "string",
+						"enum": ["viewer", "app_editor", "admin"],
+						"description": "Effective role: viewer < app_editor < admin."
+					}
+				},
+				"required": ["user", "role"],
+				"description": "The caller identity as the API sees it."
+			},
+			"Health": {
+				"type": "object",
+				"properties": {
+					"ok": {
+						"type": "boolean",
+						"const": true
+					}
+				},
+				"required": ["ok"],
+				"description": "Liveness check result."
+			},
+			"Error": {
+				"type": "object",
+				"properties": {
+					"error": {
+						"type": "string",
+						"description": "Human-readable message."
+					},
+					"code": {
+						"description": "Machine-readable code, present on domain errors.",
+						"type": "string",
+						"enum": [
+							"NOT_FOUND",
+							"CONFLICT",
+							"VALIDATION_ERROR",
+							"UNAUTHORIZED",
+							"INSUFFICIENT_ROLE"
+						]
+					},
+					"details": {
+						"description": "Per-field validation messages, present on 400s from schema validation.",
+						"type": "object",
+						"properties": {
+							"formErrors": {
+								"type": "array",
+								"items": {
+									"type": "string"
+								}
+							},
+							"fieldErrors": {
+								"type": "object",
+								"propertyNames": {
+									"type": "string"
+								},
+								"additionalProperties": {
+									"type": "array",
+									"items": {
+										"type": "string"
+									}
+								}
+							}
+						},
+						"required": ["formErrors", "fieldErrors"]
+					},
+					"requestId": {
+						"description": "Request id to quote when reporting a 500.",
+						"type": "string"
+					}
+				},
+				"required": ["error"],
+				"description": "Error body returned for every 4xx and 5xx response."
+			}
+		},
+		"responses": {
+			"BadRequest": {
+				"description": "The body, path, or query failed validation (details holds per-field messages), or a business rule was broken (code VALIDATION_ERROR).",
+				"content": {
+					"application/json": {
+						"schema": {
+							"$ref": "#/components/schemas/Error"
+						}
+					}
+				}
+			},
+			"Unauthorized": {
+				"description": "Missing or invalid credentials.",
+				"content": {
+					"application/json": {
+						"schema": {
+							"$ref": "#/components/schemas/Error"
+						}
+					}
+				}
+			},
+			"Forbidden": {
+				"description": "Authenticated, but the role may not make this change (code INSUFFICIENT_ROLE).",
+				"content": {
+					"application/json": {
+						"schema": {
+							"$ref": "#/components/schemas/Error"
+						}
+					}
+				}
+			},
+			"NotFound": {
+				"description": "No record with that id (code NOT_FOUND).",
+				"content": {
+					"application/json": {
+						"schema": {
+							"$ref": "#/components/schemas/Error"
+						}
+					}
+				}
+			},
+			"Conflict": {
+				"description": "A uniqueness rule or a dependent record blocks the change (code CONFLICT).",
+				"content": {
+					"application/json": {
+						"schema": {
+							"$ref": "#/components/schemas/Error"
+						}
+					}
+				}
+			},
+			"InternalError": {
+				"description": "Unexpected server error. Quote requestId when reporting it.",
+				"content": {
+					"application/json": {
+						"schema": {
+							"$ref": "#/components/schemas/Error"
+						}
+					}
+				}
+			}
+		}
+	}
+}

@@ -20,6 +20,7 @@ import { corsHeaders } from './cors.js';
 import { identityFromJwtClaims } from './jwt-auth.js';
 import type { NormalizedHttpEvent } from './normalize-event.js';
 import { decodeBody, stripApiPrefix } from './normalize-event.js';
+import { getOpenApiDocument } from './openapi/openapi-document.js';
 import {
 	applicationIdParamSchema,
 	createApplicationSchema,
@@ -240,6 +241,12 @@ export async function routeHttp(
 
 	if (method === 'GET' && path === '/me') {
 		return json(200, { user: identity.user, role: identity.role }, cors);
+	}
+
+	// Any authenticated role may read the spec. It holds no data, but it maps
+	// the inventory's shape, so it is not offered to anonymous callers.
+	if (method === 'GET' && path === '/openapi.json') {
+		return json(200, getOpenApiDocument(deps.config.AUTH_MODE), cors);
 	}
 
 	const logger = deps.logger.child({

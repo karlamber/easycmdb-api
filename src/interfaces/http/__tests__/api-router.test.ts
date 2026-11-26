@@ -711,3 +711,62 @@ describe('routeHttp - Application compliance tags', () => {
 		expect(callArg).not.toHaveProperty('compliance');
 	});
 });
+
+describe('routeHttp - GET /api/openapi.json', () => {
+	it('given no credentials, when the spec is requested, then it returns 401', async () => {
+		// Arrange
+		const deps = makeDeps('basic');
+
+		// Act
+		const result = await routeHttp(
+			makeEvent({ path: '/api/openapi.json' }),
+			deps,
+		);
+
+		// Assert
+		expect(statusOf(result)).toBe(401);
+	});
+
+	it('given a viewer, when the spec is requested, then it returns the OpenAPI document', async () => {
+		// Arrange
+		const deps = makeDeps('basic');
+
+		// Act
+		const result = await routeHttp(
+			makeEvent({
+				path: '/api/openapi.json',
+				headers: { authorization: basic('viewer', 'viewer-pw') },
+			}),
+			deps,
+		);
+
+		// Assert
+		expect(statusOf(result)).toBe(200);
+		expect(parseBody(result)).toMatchObject({ openapi: '3.1.0' });
+	});
+
+	it('given AUTH_MODE=cognito, when the spec is requested, then only bearer auth is advertised', async () => {
+		// Arrange
+		const deps = makeDeps('cognito');
+
+		// Act
+		const result = await routeHttp(
+			makeEvent({
+				path: '/api/openapi.json',
+				jwtClaims: {
+					email: 'viewer@example.com',
+					'custom:roles': 'argus-viewer',
+				},
+			}),
+			deps,
+		);
+
+		// Assert
+		const body = parseBody(result) as {
+			components: { securitySchemes: Record<string, unknown> };
+		};
+		expect(Object.keys(body.components.securitySchemes)).toEqual([
+			'bearerAuth',
+		]);
+	});
+});
